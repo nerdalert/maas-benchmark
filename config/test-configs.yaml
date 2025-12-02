@@ -1,0 +1,78 @@
+# Test Configuration Templates
+# Use these configurations with the k6 performance test script
+
+# Basic burst test - quick high-intensity load
+burst_basic:
+  mode: "burst"
+  burst_iterations: 50
+  burst_vus: 5
+  max_tokens_free: 25
+  max_tokens_premium: 50
+  description: "Basic burst test with 50 iterations per tier"
+
+# Intensive burst test - stress testing
+burst_intensive:
+  mode: "burst"
+  burst_iterations: 500
+  burst_vus: 20
+  max_tokens_free: 50
+  max_tokens_premium: 100
+  description: "Intensive burst test to stress rate limits"
+
+# Light soak test - sustained low load
+soak_light:
+  mode: "soak"
+  soak_duration: "5m"
+  soak_rate_free: 1
+  soak_rate_premium: 2
+  max_tokens_free: 30
+  max_tokens_premium: 60
+  description: "Light sustained load for 5 minutes"
+
+# Standard soak test - normal operational load
+soak_standard:
+  mode: "soak"
+  soak_duration: "10m"
+  soak_rate_free: 3
+  soak_rate_premium: 5
+  max_tokens_free: 50
+  max_tokens_premium: 100
+  description: "Standard operational load for 10 minutes"
+
+# Heavy soak test - high sustained load
+soak_heavy:
+  mode: "soak"
+  soak_duration: "15m"
+  soak_rate_free: 5
+  soak_rate_premium: 10
+  max_tokens_free: 75
+  max_tokens_premium: 150
+  description: "Heavy sustained load for 15 minutes"
+
+# Rate limit validation - designed to hit limits
+rate_limit_validation:
+  mode: "rate-limit-test"
+  rate_limit_duration: "3m"
+  rate_limit_vus: 30
+  max_tokens_free: 100
+  max_tokens_premium: 200
+  description: "Test designed to trigger rate limits"
+
+# Performance baseline - measure optimal performance
+performance_baseline:
+  mode: "burst"
+  burst_iterations: 10
+  burst_vus: 1
+  max_tokens_free: 20
+  max_tokens_premium: 20
+  description: "Single-user performance baseline"
+
+# Token consumption test - focus on token-based limits
+token_consumption:
+  mode: "soak"
+  soak_duration: "5m"
+  soak_rate_free: 2
+  soak_rate_premium: 3
+  max_tokens_free: 500  # High token count to test token limits
+  max_tokens_premium: 1000
+  description: "Test token-based rate limiting"

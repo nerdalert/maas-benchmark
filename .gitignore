@@ -1,0 +1,30 @@
+# Token files (contain sensitive authentication tokens)
+tokens/
+!tokens/.gitkeep
+
+# Test results
+results/
+!results/.gitkeep
+
+# Temporary files
+*.tmp
+*.log
+
+# Environment files
+*.env
+.env*
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Backup files
+*.bak
+*.backup
