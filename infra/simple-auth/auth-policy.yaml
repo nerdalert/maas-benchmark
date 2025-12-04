@@ -1,0 +1,45 @@
+###############################################################################
+# Simple AuthPolicy for Performance Testing
+# Uses API keys only - NO TokenReview, NO SubjectAccessReview, NO MaaS API calls
+###############################################################################
+apiVersion: kuadrant.io/v1
+kind: AuthPolicy
+metadata:
+  name: simple-auth-policy
+  namespace: llm
+  labels:
+    app: maas-simple-auth
+    purpose: performance-testing
+spec:
+  # Target the HTTPRoute, not the Gateway to avoid conflicts
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: simple-auth-model-route
+
+  rules:
+    authentication:
+      api-key-users:
+        apiKey:
+          allNamespaces: true  # Allow secrets from any namespace
+          selector:
+            matchLabels:
+              app: maas-simple-auth
+        credentials:
+          authorizationHeader:
+            prefix: APIKEY  # Format: Authorization: APIKEY <key>
+
+    # Expose user info without external calls
+    response:
+      success:
+        filters:
+          identity:
+            json:
+              properties:
+                userid:
+                  selector: auth.identity.metadata.annotations.secret\.kuadrant\.io/user-id
+                groups:
+                  selector: auth.identity.metadata.annotations.kuadrant\.io/groups
+                tier:
+                  # Static value since we're not calling MaaS API
+                  value: "free"

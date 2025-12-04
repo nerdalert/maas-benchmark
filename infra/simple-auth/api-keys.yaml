@@ -1,0 +1,78 @@
+###############################################################################
+# Simple API Key Secrets for Performance Testing Baseline
+# These provide lightweight authentication without K8s API calls
+###############################################################################
+apiVersion: v1
+kind: Secret
+metadata:
+  name: perftest-user1-apikey
+  namespace: openshift-ingress
+  labels:
+    kuadrant.io/auth-secret: "true"
+    app: maas-simple-auth
+  annotations:
+    kuadrant.io/groups: free
+    secret.kuadrant.io/user-id: perftest-user1
+stringData:
+  api_key: perftest-user1-key
+type: Opaque
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: perftest-user2-apikey
+  namespace: openshift-ingress
+  labels:
+    kuadrant.io/auth-secret: "true"
+    app: maas-simple-auth
+  annotations:
+    kuadrant.io/groups: free
+    secret.kuadrant.io/user-id: perftest-user2
+stringData:
+  api_key: perftest-user2-key
+type: Opaque
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: perftest-user3-apikey
+  namespace: openshift-ingress
+  labels:
+    kuadrant.io/auth-secret: "true"
+    app: maas-simple-auth
+  annotations:
+    kuadrant.io/groups: free
+    secret.kuadrant.io/user-id: perftest-user3
+stringData:
+  api_key: perftest-user3-key
+type: Opaque
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: perftest-user4-apikey
+  namespace: openshift-ingress
+  labels:
+    kuadrant.io/auth-secret: "true"
+    app: maas-simple-auth
+  annotations:
+    kuadrant.io/groups: free
+    secret.kuadrant.io/user-id: perftest-user4
+stringData:
+  api_key: perftest-user4-key
+type: Opaque
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: perftest-user5-apikey
+  namespace: openshift-ingress
+  labels:
+    kuadrant.io/auth-secret: "true"
+    app: maas-simple-auth
+  annotations:
+    kuadrant.io/groups: free
+    secret.kuadrant.io/user-id: perftest-user5
+stringData:
+  api_key: perftest-user5-key
+type: Opaque

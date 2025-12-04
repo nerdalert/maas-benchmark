@@ -1,0 +1,54 @@
+###############################################################################
+# HTTPRoute for Simple Auth Performance Testing Path
+# This creates a separate path (/simple/...) that bypasses complex auth
+###############################################################################
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: simple-auth-model-route
+  namespace: llm
+  labels:
+    app: maas-simple-auth
+    purpose: performance-testing
+spec:
+  parentRefs:
+  - group: gateway.networking.k8s.io
+    kind: Gateway
+    name: maas-default-gateway
+    namespace: openshift-ingress
+  rules:
+  # Chat completions endpoint
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /simple/llm/facebook-opt-125m-simulated/v1/chat/completions
+    backendRefs:
+    - group: ""
+      kind: Service
+      name: facebook-opt-125m-simulated-kserve-workload-svc
+      port: 8000
+      weight: 1
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          type: ReplacePrefixMatch
+          replacePrefixMatch: /v1/chat/completions
+
+  # Regular completions endpoint
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /simple/llm/facebook-opt-125m-simulated/v1/completions
+    backendRefs:
+    - group: ""
+      kind: Service
+      name: facebook-opt-125m-simulated-kserve-workload-svc
+      port: 8000
+      weight: 1
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          type: ReplacePrefixMatch
+          replacePrefixMatch: /v1/completions
