@@ -2,10 +2,6 @@
 tokens/
 !tokens/.gitkeep
 
-# Test results
-results/
-!results/.gitkeep
-
 # Temporary files
 *.tmp
 *.log
