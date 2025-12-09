@@ -1,0 +1,25 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: etcd-metrics
+  namespace: openshift-monitoring
+  labels:
+    release: prometheus-k8s
+spec:
+  jobLabel: etcd
+  namespaceSelector:
+    matchNames:
+      - openshift-etcd
+  selector:
+    matchLabels:
+      app: etcd
+  endpoints:
+    - port: metrics
+      scheme: https
+      interval: 30s
+      bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+      tlsConfig:
+        caFile: /etc/prometheus/configmaps/etcd-ca/ca.crt
+        certFile: /etc/prometheus/secrets/etcd-client/tls.crt
+        keyFile: /etc/prometheus/secrets/etcd-client/tls.key
+        serverName: etcd

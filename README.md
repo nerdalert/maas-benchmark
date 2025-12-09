@@ -4,6 +4,7 @@
 - Authenticated to OpenShift: `oc login`
 - k6 installed
 - MaaS deployment running
+- etcd monitoring steps (Prometheus access + PromQL) are documented in `docs/ETCD-MONITORING.md`
 
 ## 0. Setup
 
@@ -164,4 +165,3 @@ HOST=$HOST MODEL_NAME=$MODEL_NAME MODE=soak SOAK_DURATION=2m SOAK_RATE_FREE=5 k6
 # Create 50 service accounts
 FREE_USERS=50 PREMIUM_USERS=0 ./scripts/create-sa-tokens.sh
 ```
-
