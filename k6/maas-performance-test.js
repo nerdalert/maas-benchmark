@@ -9,6 +9,12 @@ const CLUSTER_DOMAIN = __ENV.CLUSTER_DOMAIN || "";
 const HOST = __ENV.HOST || `maas.${CLUSTER_DOMAIN}`;
 const PROTOCOL = __ENV.PROTOCOL || "http";
 const MODEL_NAME = __ENV.MODEL_NAME || "";
+// Base path before model name in URL (default: maas-benchmarking). Full path: /${MODEL_BASE_PATH}/${model}/v1/completions
+const MODEL_BASE_PATH = __ENV.MODEL_BASE_PATH || "maas-benchmarking";
+// Model id sent in request body (some backends expect e.g. "facebook/opt-125m" for simulator)
+const MODEL_PAYLOAD_ID = __ENV.MODEL_PAYLOAD_ID || MODEL_NAME || "default-model";
+// Subscription header required by MaaS gateway (e.g. maas-benchmark-subscription)
+const MAAS_SUBSCRIPTION_HEADER = __ENV.MAAS_SUBSCRIPTION_HEADER || "maas-benchmark-subscription";
 const MODE = __ENV.MODE || "burst"; // "burst" | "soak" | "rate-limit-test"
 
 // Burst configuration
@@ -51,7 +57,7 @@ let tokens = { free: [], premium: [] };
 // Load tokens from file or use sample data
 function loadTokens() {
     if (USE_SAMPLE_TOKENS) {
-        // Generate sample tokens for testing without provisioned tokens
+        // Generate sample API keys for testing without provisioned keys
         console.log("Using sample tokens for testing");
         for (let i = 1; i <= SAMPLE_SIZE; i++) {
             tokens.free.push({
@@ -74,7 +80,7 @@ function loadTokens() {
             console.log(`Loaded ${tokens.free.length} free tokens and ${tokens.premium.length} premium tokens`);
         } catch (error) {
             console.error(`Failed to load tokens from ${TOKEN_FILE_PATH}: ${error}`);
-            console.log("Run 'scripts/provision-tokens.sh' first or set USE_SAMPLE_TOKENS=true");
+            console.log("Run 'scripts/provision-api-keys.sh' first or set USE_SAMPLE_TOKENS=true for testing");
             throw new Error("Token loading failed");
         }
     }
@@ -169,6 +175,7 @@ export const options = {
         http_req_failed: ["rate<0.1"],     // Less than 10% failures
         success_rate: ["rate>0.9"],       // More than 90% success
     },
+    insecureSkipTLSVerify: true, // Skip TLS verification for self-signed certs
 };
 
 // ========================================
@@ -184,25 +191,38 @@ function getRandomToken(tier) {
 
 function buildModelUrl(modelName) {
     if (modelName) {
-        // Transform model name for URL: facebook/opt-125m -> facebook-opt-125m-simulated
-        const urlModelName = modelName.replace(/\//g, "-") + "-simulated";
-        return `${PROTOCOL}://${HOST}/llm/${urlModelName}/v1/chat/completions`;
+        // Transform for URL: facebook/opt-125m -> facebook-opt-125m-simulated; already MaaSModel name (e.g. facebook-opt-125m-simulated) left as-is
+        const base = modelName.replace(/\//g, "-");
+        const urlModelName = base.endsWith("-simulated") ? base : base + "-simulated";
+        return `${PROTOCOL}://${HOST}/${MODEL_BASE_PATH}/${urlModelName}/v1/completions`;
     }
-    return `${PROTOCOL}://${HOST}/v1/chat/completions`;
+    return `${PROTOCOL}://${HOST}/${MODEL_BASE_PATH}/v1/completions`;
 }
 
 function makeInferenceRequest(token, prompt, maxTokens, tier) {
     const modelUrl = buildModelUrl(MODEL_NAME);
 
+    // /v1/completions format: model, prompt, max_tokens (required by MaaS gateway)
     const payload = JSON.stringify({
-        model: MODEL_NAME || "default-model",
+        model: MODEL_PAYLOAD_ID,
         prompt: prompt,
         max_tokens: maxTokens
     });
 
+    // Derive subscription header from user_id (e.g., "sub1-user1" -> "scale-benchmark-sub-1")
+    // If MAAS_SUBSCRIPTION_HEADER contains "scale-benchmark-sub-", derive from user_id
+    let subscriptionHeader = MAAS_SUBSCRIPTION_HEADER;
+    if (MAAS_SUBSCRIPTION_HEADER.includes("scale-benchmark-sub-") && token.user_id) {
+        const match = token.user_id.match(/^sub(\d+)-/);
+        if (match) {
+            subscriptionHeader = `scale-benchmark-sub-${match[1]}`;
+        }
+    }
+
     const headers = {
         "Authorization": `Bearer ${token.token}`,
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "x-maas-subscription": subscriptionHeader
     };
 
     const response = http.post(modelUrl, payload, {
@@ -242,7 +262,7 @@ function makeInferenceRequest(token, prompt, maxTokens, tier) {
 
     // Debug logging
     if (__ENV.DEBUG === "true") {
-        console.log(`[${tier}] ${token.user_id}: Status ${response.status}, URL: ${modelUrl}`);
+        console.log(`[${tier}] ${token.user_id}: Status ${response.status}, URL: ${modelUrl}, sub-header: ${subscriptionHeader}`);
         if (response.status !== 200) {
             console.log(`[${tier}] ${token.user_id}: Response body: ${response.body.substring(0, 200)}...`);
         }

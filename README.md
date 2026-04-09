@@ -4,9 +4,92 @@
 - Authenticated to OpenShift: `oc login`
 - k6 installed
 - MaaS deployment running
-- etcd monitoring steps (Prometheus access + PromQL) are documented in `docs/ETCD-MONITORING.md`
 
-## 0. Setup
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [Load Testing Guide](docs/LOAD-TESTING-GUIDE.md) | Comprehensive load testing scenarios and analysis |
+| [Subscription Scale Testing](docs/SUBSCRIPTION-SCALE-TESTING.md) | Testing subscription count bottlenecks (1-100) |
+| [Scale Testing Plan](docs/SCALE-TESTING-PLAN.md) | Phased scale testing methodology |
+| [etcd Monitoring](docs/etcd-monitoring.md) | Prometheus queries for etcd metrics |
+
+## API Keys and authentication
+
+**API Keys provide username-based authentication.** When the gateway validates an API key, the authentication flow provides:
+
+- **User:** `username` from the API key metadata
+- **Groups:** User groups associated with the API key
+
+This enables both user-specific and group-based authorization through MaaSAuthPolicy and MaaSSubscription.
+
+**For benchmarking with API keys** the setup grants access by **username** for each benchmark user. The **MaaS CR flow** below creates a MaaSAuthPolicy and MaaSSubscription whose `subjects.users` / `owner.users` list each benchmark username from the API key authentication. This provides reliable performance testing against the current models-as-service authentication system.
+
+---
+
+## Benchmarking with MaaS CRs (models-as-a-service)
+
+To run benchmarks against the **MaaS objects** (MaaSModelRef, MaaSAuthPolicy, MaaSSubscription) from the [models-as-a-service](https://github.com/opendatahub-io/models-as-a-service) repo:
+
+### 1. Install MaaS from a feature branch (optional)
+
+From the `maas-benchmark` directory, point at your local clone and branch:
+
+```bash
+cd maas-benchmark
+
+# Use the models-as-a-service repo (default: ../models-as-a-service) and a feature branch
+MAAS_REPO_PATH=/path/to/models-as-a-service MAAS_BRANCH=feature/maas-subscription-redesign ./scripts/install-maas-from-branch.sh
+```
+
+This installs the maas-controller and, by default, the example MaaS CRs and simulator LLMInferenceServices. Set `SKIP_EXAMPLES=1` to skip examples if you already have models and CRs.
+
+### 2. Create benchmark API keys
+
+Create API keys for benchmarking users:
+
+```bash
+FREE_USERS=10 PREMIUM_USERS=0 ./scripts/provision-api-keys.sh
+```
+
+### 3. Create benchmark MaaS CRs
+
+Create a MaaSAuthPolicy and MaaSSubscription that grant the benchmark **users** (each username from API key auth) access to the model(s) with token rate limits. **MaaS CRs** (MaaSModelRef, MaaSAuthPolicy, MaaSSubscription) are created in the **opendatahub** namespace by default. The **LLMInferenceService** (simulator) is installed in **maas-benchmarking** by default, and the MaaSModelRef points at that LLMIS. If the MaaSModelRef (and LLMIS) for the default simulator do not exist, the script can install them from `MAAS_REPO_PATH` (default: `../models-as-a-service`). After apply, the script waits for MaaSModelRef(s) to be Ready and for MaaSAuthPolicy/MaaSSubscription to be Active, then runs **auth and rate-limit validation** to confirm auth works and token rate limiting is enforced before you run benchmarks.
+
+```bash
+./scripts/setup-maas-crs-for-benchmark.sh
+```
+
+Optional env: `MAAS_CR_NAMESPACE` (default: **opendatahub**), `BENCH_MODEL_NAMESPACE` (default: **maas-benchmarking**, where the LLMIS is deployed), `MODEL_NAMES`, `TOKEN_LIMIT`, `TOKEN_WINDOW`, `MAAS_REPO_PATH` (for auto-installing simulator), `SKIP_MODEL_INSTALL`, `SKIP_WAIT`, `SKIP_VALIDATE`.
+
+**Validation:** The setup script runs `validate-benchmark-setup.sh`, which (1) checks that requests with no token or invalid token get 401 and valid token gets 2xx, and (2) temporarily lowers the subscription token limit, sends requests until a 429 is received, then restores the limit. You can run it manually: `./scripts/validate-benchmark-setup.sh`.
+
+**Troubleshooting - Authentication failures (401):** If requests fail with 401, check: (1) API key format is correct (`sk-oai-*` prefix), (2) API key is not expired (check `expiresAt` in token file), (3) the user is listed in MaaSAuthPolicy/MaaSSubscription subjects, (4) `maas-api` pod is healthy and can reach PostgreSQL. Re-create API keys with `./scripts/provision-api-keys.sh` if needed. Check Authorino logs with `kubectl logs deployment/authorino -n kuadrant-system` for validation errors.
+
+### 4. Run k6
+
+Use the **MaaSModelRef name** for the URL: `MODEL_NAME=facebook-opt-125m-simulated`. The request URL is **`${PROTOCOL}://${HOST}/${MODEL_BASE_PATH}/${model}/v1/completions`**; **`MODEL_BASE_PATH`** defaults to **`maas-benchmarking`** (override with `MODEL_BASE_PATH=llm` if your gateway uses `/llm`). The script sends body `{ "model", "prompt", "max_tokens" }` and the **`x-maas-subscription`** header (default: `maas-benchmark-subscription`). If the inference backend expects a different model id in the body (e.g. simulator: `facebook/opt-125m`), set `MODEL_PAYLOAD_ID`:
+
+```bash
+export HOST="maas.$(kubectl get ingresses.config.openshift.io cluster -o jsonpath='{.spec.domain}')"
+export MODEL_NAME="facebook-opt-125m-simulated"
+export MODEL_PAYLOAD_ID="facebook/opt-125m"   # for simulator backend
+
+HOST=$HOST MODEL_NAME=$MODEL_NAME MODEL_PAYLOAD_ID=$MODEL_PAYLOAD_ID PROTOCOL=https BURST_VUS=5 BURST_ITERATIONS=10 k6 run k6/maas-performance-test.js
+```
+
+Override base path: `MODEL_BASE_PATH=llm`. Override subscription header: `MAAS_SUBSCRIPTION_HEADER=your-subscription-name`.
+
+### 5. Cleanup MaaS CRs and API keys
+
+```bash
+./scripts/cleanup-maas-crs.sh   # removes benchmark MaaS CRs from opendatahub namespace
+FREE_USERS=10 PREMIUM_USERS=0 ./scripts/cleanup-api-keys.sh
+```
+
+---
+
+## 0. Setup (legacy / tier-based)
 
 ### Upgrade Kuadrant to Latest (Optional)
 ```bash
@@ -66,27 +149,27 @@ kubectl patch tokenratelimitpolicy gateway-token-rate-limits -n openshift-ingres
 ]'
 ```
 
-## 1. Create Service Account Tokens
+## 1. Create API Keys
 
-Create multiple service accounts with unique tokens for multi-user benchmarking:
+Create API keys for multi-user benchmarking:
 
 ```bash
 cd maas-benchmarking
 
-# Create 10 free tier service accounts with tokens
-FREE_USERS=10 PREMIUM_USERS=0 ./scripts/create-sa-tokens.sh
+# Create 10 API keys for benchmark users
+FREE_USERS=10 PREMIUM_USERS=0 ./scripts/provision-api-keys.sh
 
-# Or with custom expiration (default is 2h)
-TOKEN_EXPIRATION="4h" FREE_USERS=10 PREMIUM_USERS=0 ./scripts/create-sa-tokens.sh
+# Or with custom expiration (default is 4h)
+TOKEN_EXPIRATION="8h" FREE_USERS=10 PREMIUM_USERS=0 ./scripts/provision-api-keys.sh
 
 # Verify tokens were created
-./scripts/token-manager.sh status
+./scripts/api-key-manager.sh status
 ```
 
 This creates:
-- Service accounts: `benchuser-free-1`, `benchuser-free-2`, etc.
-- Kubernetes tokens with correct audience for MaaS gateway
-- Each SA has a unique name for independent rate limiting
+- API keys with `sk-oai-*` format for each benchmark user
+- Token files with `key_id` for cleanup/revocation
+- Each user has a unique username for independent rate limiting
 
 ## 2. Run Benchmarks
 
@@ -112,7 +195,11 @@ HOST=$HOST MODEL_NAME=$MODEL_NAME MODE=soak SOAK_DURATION=5m SOAK_RATE_FREE=2 k6
 
 **Environment Variables:**
 - `HOST` - MaaS hostname (without https://)
-- `MODEL_NAME` - Model to test (e.g., facebook/opt-125m)
+- `MODEL_NAME` - Model path/name for URL (e.g. `facebook-opt-125m-simulated` for MaaSModelRef name)
+- `MODEL_BASE_PATH` - URL path segment before model name (default: `maas-benchmarking`). Full path: `/${MODEL_BASE_PATH}/${model}/v1/completions`. Set to `llm` if your gateway uses `/llm`.
+- `MODEL_PAYLOAD_ID` - Model id sent in request body; set when the backend expects a different id (e.g. simulator: `facebook/opt-125m`)
+- `MAAS_SUBSCRIPTION_HEADER` - Value for `x-maas-subscription` header (default: `maas-benchmark-subscription`)
+- `PROTOCOL` - `http` or `https` (default: http)
 - `BURST_VUS` - Number of concurrent virtual users
 - `BURST_ITERATIONS` - Total iterations to run
 - `MODE` - Test mode: `burst` (default), `soak`, or `rate-limit-test`
@@ -130,14 +217,11 @@ cat results/test_*_summary.json | jq
 ## 5. Cleanup
 
 ```bash
-# Remove service accounts and tokens
-FREE_USERS=10 PREMIUM_USERS=0 ./scripts/cleanup-sa-tokens.sh
+# Remove API keys and token files
+FREE_USERS=10 PREMIUM_USERS=0 ./scripts/cleanup-api-keys.sh
 
-# Keep tokens but clean service accounts
-FREE_USERS=10 PREMIUM_USERS=0 CLEAN_TOKENS=false ./scripts/cleanup-sa-tokens.sh
-
-# Or just remove token files
-./scripts/token-manager.sh clean
+# Keep token files but revoke API keys only
+FREE_USERS=10 PREMIUM_USERS=0 CLEAN_TOKENS=false ./scripts/cleanup-api-keys.sh
 ```
 
 ## Quick Reference
@@ -162,6 +246,52 @@ HOST=$HOST MODEL_NAME=$MODEL_NAME MODE=soak SOAK_DURATION=2m SOAK_RATE_FREE=5 k6
 
 **Scale to More Users:**
 ```bash
-# Create 50 service accounts
-FREE_USERS=50 PREMIUM_USERS=0 ./scripts/create-sa-tokens.sh
+# Create 50 API keys
+FREE_USERS=50 PREMIUM_USERS=0 ./scripts/provision-api-keys.sh
 ```
+
+---
+
+## Subscription Scale Testing
+
+Test how many MaaSSubscriptions the system can handle (up to **1000**) with **automatic bottleneck detection**.
+
+### Quick Start
+
+```bash
+# Full test: 1 → 10 → 25 → 50 → 100 → 150 → 200 → 300 → 400 → 500 → 750 → 1000
+# Automatically stops when bottleneck is detected
+./scripts/benchmark-subscription-scale.sh
+
+# Custom subscription counts
+SUBSCRIPTION_COUNTS="1 50 100 250 500 750 1000" ./scripts/benchmark-subscription-scale.sh
+
+# Continue testing past bottleneck
+STOP_ON_BOTTLENECK=false ./scripts/benchmark-subscription-scale.sh
+
+# Adjust bottleneck thresholds
+MAX_RECONCILE_TIME=600 MIN_SUCCESS_RATE=0.85 ./scripts/benchmark-subscription-scale.sh
+```
+
+### Bottleneck Detection
+
+The script automatically detects when:
+- **Reconciliation time** exceeds 5 minutes (`MAX_RECONCILE_TIME=300`)
+- **Success rate** drops below 90% (`MIN_SUCCESS_RATE=0.90`)
+- **p95 latency** exceeds 10 seconds (`MAX_P95_LATENCY=10000`)
+
+### Sample Output
+
+```
+| Subscriptions | Users | Reconcile (s) | p50 | p95 | Success | Status |
+|---------------|-------|---------------|-----|-----|---------|--------|
+| 100           | 300   | 68.45         | 178 | 389 | 97.8%   | ✅     |
+| 200           | 600   | 142.89        | 267 | 678 | 94.2%   | ✅     |
+| 300           | 900   | 218.34        | 345 | 892 | 91.3%   | ✅     |
+| 400           | 1200  | 312.56        | 456 | 1245| 88.5%   | 🚨     |
+
+🚨 BOTTLENECK DETECTED at 400 subscriptions
+Recommended safe limit: 300 subscriptions (with 80% buffer: 240)
+```
+
+See [docs/SUBSCRIPTION-SCALE-TESTING.md](docs/SUBSCRIPTION-SCALE-TESTING.md) for detailed documentation.
